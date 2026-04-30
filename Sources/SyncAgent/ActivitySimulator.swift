@@ -207,6 +207,9 @@ final class ActivitySimulator {
         )
         let steps = Int.random(in: s.steps)
 
+        // Create source once per sweep — reused for every step event
+        let src = CGEventSource(stateID: .hidSystemState)
+
         for step in 0...steps {
             let t     = CGFloat(step) / CGFloat(steps)
             let eased = (1 - cos(t * .pi)) / 2      // sine ease-in/out
@@ -222,11 +225,19 @@ final class ActivitySimulator {
                 y: (y + jAmp * CGFloat.random(in: -1...1)).clamped(to: 0...H)
             )
 
-            let result = CGWarpMouseCursorPosition(point)
-            if result != .success {
-                logger.warning("CGWarpMouseCursorPosition failed: \(result.rawValue)")
+            // Post a real HID-level mouse-moved event — this resets the system idle timer.
+            // CGWarpMouseCursorPosition only moves the cursor visually and does NOT
+            // generate a HID event, so the idle timer would never reset with that API.
+            guard let moveEvent = CGEvent(
+                mouseEventSource: src,
+                mouseType: .mouseMoved,
+                mouseCursorPosition: point,
+                mouseButton: .left
+            ) else {
+                logger.warning("Failed to create mouse CGEvent at step \(step)")
                 return
             }
+            moveEvent.post(tap: .cghidEventTap)
 
             // Speed curve: slower at start/end, faster through the middle
             let speedCurve = 1.0 + 0.6 * (1.0 - sin(t * .pi))
