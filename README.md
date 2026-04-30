@@ -100,7 +100,7 @@ Window switching (Cmd+Tab) fires at 20% probability per burst, with a minimum of
 |---|---|
 | `make build` | Compile release binary |
 | `make bundle` | Assemble `SyncAgent.app` with ad-hoc codesign |
-| `make install` | Bundle + copy to `/Applications/` + launch |
+| `make install` | Bundle + stop old instance + replace in `/Applications/` + launch |
 | `make uninstall` | Kill process and remove from `/Applications/` |
 | `make clean` | Remove `.build/` and local `SyncAgent.app` |
 
