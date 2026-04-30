@@ -1,8 +1,23 @@
 import AppKit
 import os
 
-private let logger     = Logger(subsystem: "com.sync.agent", category: "StatusBar")
-private let appVersion = "1.1.0"
+private let logger = Logger(subsystem: "com.sync.agent", category: "StatusBar")
+
+// Bundle.main.infoDictionary is unreliable for SPM executables; read the
+// Info.plist directly from Contents/ relative to the running binary instead.
+private let appVersion: String = {
+    let exe     = URL(fileURLWithPath: CommandLine.arguments[0])
+                    .resolvingSymlinksInPath()
+    let plist   = exe
+                    .deletingLastPathComponent()          // …/MacOS
+                    .deletingLastPathComponent()          // …/Contents
+                    .appendingPathComponent("Info.plist") // …/Contents/Info.plist
+    if let dict = NSDictionary(contentsOf: plist),
+       let ver  = dict["CFBundleShortVersionString"] as? String {
+        return ver
+    }
+    return Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
+}()
 
 @MainActor
 final class StatusBarController {
