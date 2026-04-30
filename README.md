@@ -7,6 +7,7 @@ A lightweight macOS menu bar utility that prevents your system from going idle b
 - Smooth, curved mouse movement with natural ease-in/out and micro-jitter
 - Periodic Cmd+Tab app switching to register session activity
 - Configurable idle trigger threshold: 1, 2, or 5 minutes
+- Active scheduler — restrict simulation to specific hours and days
 - Toggle on/off from the menu bar
 - Launch at login support
 - No Dock icon — lives entirely in the menu bar
@@ -45,14 +46,23 @@ Idle Trigger:
     2 minutes
     5 minutes
 ──────────────
+✓ Schedule
+  Hours: 8am – 6pm  ▶
+  Days: Workdays     ▶
+──────────────
   Launch at Login
 ──────────────
-  Quit                ⌘Q
+  Quit              ⌘Q
 ```
 
 - **SyncAgent: ON/OFF** — enable or disable activity simulation
 - **Idle Trigger** — how long to wait before simulating activity
+- **Schedule** — restrict simulation to a time window and set of days
+  - **Hours** — choose from four presets: `8am–6pm` (default), `9am–5pm`, `7am–7pm`, `6am–8pm`
+  - **Days** — `Workdays (Mon–Fri)` (default), `Every Day`, or pick individual days
 - **Launch at Login** — register as a login item via macOS ServiceManagement
+
+All settings persist across relaunches.
 
 ## Makefile Targets
 
