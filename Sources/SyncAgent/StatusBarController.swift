@@ -129,6 +129,12 @@ final class StatusBarController {
         menu.addItem(loginItem)
 
         menu.addItem(.separator())
+
+        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—"
+        let versionItem = NSMenuItem(title: "Version \(version)", action: nil, keyEquivalent: "")
+        versionItem.isEnabled = false
+        menu.addItem(versionItem)
+
         menu.addItem(NSMenuItem(title: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
 
         statusItem.menu = menu
