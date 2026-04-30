@@ -1,7 +1,8 @@
 import AppKit
 import os
 
-private let logger = Logger(subsystem: "com.sync.agent", category: "StatusBar")
+private let logger     = Logger(subsystem: "com.sync.agent", category: "StatusBar")
+private let appVersion = "1.1.0"
 
 @MainActor
 final class StatusBarController {
@@ -130,8 +131,7 @@ final class StatusBarController {
 
         menu.addItem(.separator())
 
-        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—"
-        let versionItem = NSMenuItem(title: "Version \(version)", action: nil, keyEquivalent: "")
+        let versionItem = NSMenuItem(title: "Version \(appVersion)", action: nil, keyEquivalent: "")
         versionItem.isEnabled = false
         menu.addItem(versionItem)
 
