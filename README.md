@@ -72,6 +72,8 @@ All settings persist across relaunches.
 
 ## How simulation works
 
+Mouse movement uses `CGEvent(mouseType: .mouseMoved)` posted at the HID (hardware) event level via `.cghidEventTap`. This generates a real input event that flows through the same path as physical mouse movement and properly resets the macOS system idle timer. Simply repositioning the cursor with `CGWarpMouseCursorPosition` does not reset the idle timer, as it only affects the display layer.
+
 Once the idle threshold is crossed, SyncAgent waits 3–8 seconds before the first action, then fires activity bursts at randomised intervals:
 
 | Interval | Probability | Reason |
