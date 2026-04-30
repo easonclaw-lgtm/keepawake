@@ -12,25 +12,29 @@ final class PreferencesManager {
     private let defaults = UserDefaults.standard
 
     private enum Keys {
-        static let isEnabled       = "isEnabled"
-        static let idleThreshold   = "idleThreshold"
-        static let launchAtLogin   = "launchAtLogin"
-        static let scheduleEnabled = "scheduleEnabled"
-        static let scheduleStart   = "scheduleStartHour"
-        static let scheduleEnd     = "scheduleEndHour"
-        static let scheduleDays    = "scheduleDays"
+        static let isEnabled            = "isEnabled"
+        static let idleThreshold        = "idleThreshold"
+        static let launchAtLogin        = "launchAtLogin"
+        static let scheduleEnabled      = "scheduleEnabled"
+        static let scheduleStart        = "scheduleStartHour"
+        static let scheduleEnd          = "scheduleEndHour"
+        static let scheduleDays         = "scheduleDays"
+        static let mouseMovementEnabled = "mouseMovementEnabled"
+        static let windowSwitchEnabled  = "windowSwitchEnabled"
     }
 
     private init() {
         // Mon–Fri = weekdays 2–6 in Calendar convention (1=Sun … 7=Sat)
         defaults.register(defaults: [
-            Keys.isEnabled:       false,
-            Keys.idleThreshold:   60.0,
-            Keys.launchAtLogin:   false,
-            Keys.scheduleEnabled: false,
-            Keys.scheduleStart:   8,
-            Keys.scheduleEnd:     18,
-            Keys.scheduleDays:    [2, 3, 4, 5, 6]
+            Keys.isEnabled:            false,
+            Keys.idleThreshold:        60.0,
+            Keys.launchAtLogin:        false,
+            Keys.scheduleEnabled:      false,
+            Keys.scheduleStart:        8,
+            Keys.scheduleEnd:          18,
+            Keys.scheduleDays:         [2, 3, 4, 5, 6],
+            Keys.mouseMovementEnabled: true,
+            Keys.windowSwitchEnabled:  true
         ])
     }
 
@@ -96,6 +100,18 @@ final class PreferencesManager {
         set {
             defaults.set(Array(newValue).sorted(), forKey: Keys.scheduleDays)
         }
+    }
+
+    // MARK: - Simulation options
+
+    var mouseMovementEnabled: Bool {
+        get { defaults.bool(forKey: Keys.mouseMovementEnabled) }
+        set { defaults.set(newValue, forKey: Keys.mouseMovementEnabled) }
+    }
+
+    var windowSwitchEnabled: Bool {
+        get { defaults.bool(forKey: Keys.windowSwitchEnabled) }
+        set { defaults.set(newValue, forKey: Keys.windowSwitchEnabled) }
     }
 
     // MARK: - Schedule check

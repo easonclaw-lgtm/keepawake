@@ -58,6 +58,19 @@ final class StatusBarController {
         toggleItem.target = self
         menu.addItem(toggleItem)
 
+        // ── Simulation options ───────────────────────────────────
+        menu.addItem(.separator())
+
+        let mouseItem = NSMenuItem(title: "Mouse Movement", action: #selector(toggleMouseMovement), keyEquivalent: "")
+        mouseItem.state  = prefs.mouseMovementEnabled ? .on : .off
+        mouseItem.target = self
+        menu.addItem(mouseItem)
+
+        let switchItem = NSMenuItem(title: "Window Switch", action: #selector(toggleWindowSwitch), keyEquivalent: "")
+        switchItem.state  = prefs.windowSwitchEnabled ? .on : .off
+        switchItem.target = self
+        menu.addItem(switchItem)
+
         // ── Idle Trigger ─────────────────────────────────────────
         menu.addItem(.separator())
         let thresholdHeader = NSMenuItem(title: "Idle Trigger:", action: nil, keyEquivalent: "")
@@ -220,6 +233,16 @@ final class StatusBarController {
 
     @objc private func setThreshold(_ sender: NSMenuItem) {
         PreferencesManager.shared.idleThreshold = Double(sender.tag)
+        buildMenu()
+    }
+
+    @objc private func toggleMouseMovement() {
+        PreferencesManager.shared.mouseMovementEnabled.toggle()
+        buildMenu()
+    }
+
+    @objc private func toggleWindowSwitch() {
+        PreferencesManager.shared.windowSwitchEnabled.toggle()
         buildMenu()
     }
 
