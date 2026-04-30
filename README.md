@@ -74,7 +74,7 @@ All settings persist across relaunches.
 
 **Sleep prevention** uses `ProcessInfo.beginActivity(options: [.userInitiated, .idleDisplaySleepDisabled])` — the same OS-level mechanism used by `caffeinate`, Lungo, and Amphetamine. The assertion is acquired as soon as the idle threshold is crossed and released the moment the user returns. This is the reliable path; synthetic mouse events alone are not guaranteed to reset the system display sleep timer on all macOS versions.
 
-**Mouse movement** uses `CGEvent(mouseType: .mouseMoved)` posted at `.cghidEventTap` (HID hardware level) for the visual human-like simulation on top.
+**Mouse movement** uses `CGEvent(mouseType: .mouseMoved)` posted at `.cghidEventTap` (HID hardware level) for the visual human-like simulation on top. Idle time is tracked via `NSEvent.addGlobalMonitorForEvents` rather than `CGEventSource.secondsSinceLastEventType` — the latter is reset by our own synthetic events and would cause the simulation to cancel itself after every burst.
 
 Once the idle threshold is crossed, SyncAgent waits 3–8 seconds before the first action, then fires activity bursts at randomised intervals:
 
@@ -103,6 +103,10 @@ Window switching (Cmd+Tab) fires at 20% probability per burst, with a minimum of
 | `make install` | Bundle + stop old instance + replace in `/Applications/` + launch |
 | `make uninstall` | Kill process and remove from `/Applications/` |
 | `make clean` | Remove `.build/` and local `SyncAgent.app` |
+
+## Versioning
+
+The version displayed in the menu is read at runtime from `CFBundleShortVersionString` in `Resources/Info.plist` — that is the single source of truth. To release a new version, update that key and run `make install`. No Swift code needs to change.
 
 ## Architecture
 
