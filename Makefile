@@ -17,7 +17,11 @@ bundle: build
 	@echo "Bundle ready: $(BUNDLE)"
 
 install: bundle
+	@echo "Stopping running instance..."
+	-pkill -x $(APP_NAME)
+	@sleep 1
 	@echo "Installing to /Applications/..."
+	rm -rf /Applications/$(BUNDLE)
 	cp -r $(BUNDLE) /Applications/$(BUNDLE)
 	open /Applications/$(BUNDLE)
 
