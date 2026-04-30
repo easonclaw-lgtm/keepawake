@@ -9,9 +9,15 @@ final class ActivitySimulator {
 
     private var timer: Timer?
     private var isAnimating        = false
-    private var lastBurstTime:     Date? = nil   // nil = haven't burst since last user activity
+    private var lastBurstTime:     Date? = nil
     private var nextBurstDelay:    Double = 0
     private var burstsSinceSwitch: Int   = 0
+
+    // Held while the system is idle and simulation is active.
+    // ProcessInfo.beginActivity is the same mechanism caffeinate / Lungo use —
+    // it directly prevents display sleep at the OS level regardless of whether
+    // synthetic mouse events register with the HID idle timer.
+    private var activityToken: NSObjectProtocol?
 
     // MARK: - Lifecycle
 
@@ -27,8 +33,27 @@ final class ActivitySimulator {
         timer?.invalidate()
         timer = nil
         resetBurstState()
+        releaseActivity()
         isAnimating = false
         logger.info("ActivitySimulator stopped")
+    }
+
+    // MARK: - Sleep prevention assertion
+
+    private func acquireActivity() {
+        guard activityToken == nil else { return }
+        activityToken = ProcessInfo.processInfo.beginActivity(
+            options: [.userInitiated, .idleDisplaySleepDisabled],
+            reason: "SyncAgent"
+        )
+        logger.info("Display sleep prevention acquired")
+    }
+
+    private func releaseActivity() {
+        guard let token = activityToken else { return }
+        ProcessInfo.processInfo.endActivity(token)
+        activityToken = nil
+        logger.info("Display sleep prevention released")
     }
 
     // MARK: - Poll
@@ -36,23 +61,32 @@ final class ActivitySimulator {
     private func poll() {
         let prefs = PreferencesManager.shared
         guard prefs.isEnabled, !isAnimating else { return }
-        if prefs.scheduleEnabled && !prefs.isWithinSchedule() { return }
+
+        // Outside scheduled window — release any held assertion and bail
+        if prefs.scheduleEnabled && !prefs.isWithinSchedule() {
+            releaseActivity()
+            return
+        }
 
         let idle = CGEventSource.secondsSinceLastEventType(
             .combinedSessionState,
             eventType: CGEventType(rawValue: UInt32.max)!
         )
 
-        // User is active — reset burst timing
+        // User is active — release assertion and reset burst state
         guard idle >= prefs.idleThreshold else {
+            releaseActivity()
             if lastBurstTime != nil { resetBurstState() }
             return
         }
 
-        // Just crossed idle threshold — schedule first burst with a short human-feeling delay
+        // System is idle — hold the display-sleep assertion
+        acquireActivity()
+
+        // Schedule first burst with a short human-feeling delay
         if lastBurstTime == nil {
-            lastBurstTime   = Date()
-            nextBurstDelay  = Double.random(in: 3...8)
+            lastBurstTime  = Date()
+            nextBurstDelay = Double.random(in: 3...8)
             logger.info("Idle — first burst in \(self.nextBurstDelay, privacy: .public)s")
             return
         }
@@ -69,14 +103,14 @@ final class ActivitySimulator {
     }
 
     private func resetBurstState() {
-        lastBurstTime      = nil
-        nextBurstDelay     = 0
-        burstsSinceSwitch  = 0
+        lastBurstTime     = nil
+        nextBurstDelay    = 0
+        burstsSinceSwitch = 0
     }
 
     private func scheduleNextBurst() {
         lastBurstTime = Date()
-        // 10% chance of a long "reading / focused" pause (1–3 min), otherwise 15–50s
+        // 10% chance of a long "reading" pause (1–3 min), otherwise 15–50s
         nextBurstDelay = Double.random(in: 0...1) < 0.10
             ? Double.random(in: 60...180)
             : Double.random(in: 15...50)
@@ -86,7 +120,6 @@ final class ActivitySimulator {
     // MARK: - Burst dispatcher
 
     private func performBurst(prefs: PreferencesManager) {
-        // Weighted move type: 40% small twitch, 40% normal sweep, 15% large sweep, 5% double-move
         let r = Double.random(in: 0...1)
         let moveType: MoveType
         if      r < 0.40 { moveType = .smallTwitch }
@@ -94,7 +127,6 @@ final class ActivitySimulator {
         else if r < 0.95 { moveType = .largeSweep  }
         else             { moveType = .doubleMove   }
 
-        // Window switch: 20% chance, but at least 2 bursts must separate switches
         burstsSinceSwitch += 1
         let doSwitch = prefs.windowSwitchEnabled
             && burstsSinceSwitch >= 2
@@ -111,7 +143,6 @@ final class ActivitySimulator {
             }
             self?.isAnimating = false
             if doSwitch {
-                // Brief settle time before switching — feels more intentional
                 let settle = UInt64(Double.random(in: 0.35...0.90) * 1_000_000_000)
                 try? await Task.sleep(nanoseconds: settle)
                 self?.simulateCmdTab()
@@ -122,10 +153,10 @@ final class ActivitySimulator {
     // MARK: - Move types
 
     private enum MoveType {
-        case smallTwitch   // 15–45px  — hand resting, minor readjust
-        case normalSweep   // 80–180px — typical repositioning
-        case largeSweep    // 180–350px — moving to a different screen area
-        case doubleMove    // normalSweep then smallTwitch with pause — settle & adjust
+        case smallTwitch
+        case normalSweep
+        case largeSweep
+        case doubleMove
 
         var logName: String {
             switch self {
@@ -140,9 +171,9 @@ final class ActivitySimulator {
     private struct MoveSpec {
         var dist:      ClosedRange<CGFloat>
         var steps:     ClosedRange<Int>
-        var bowFactor: ClosedRange<CGFloat>   // bow as fraction of travel distance
-        var jitter:    CGFloat                // peak jitter amplitude (px)
-        var baseMs:    Double                 // base per-step delay (seconds)
+        var bowFactor: ClosedRange<CGFloat>
+        var jitter:    CGFloat
+        var baseMs:    Double
     }
 
     private func spec(for type: MoveType) -> MoveSpec {
@@ -161,14 +192,14 @@ final class ActivitySimulator {
     // MARK: - Animation
 
     private func runMouseAnimation(type: MoveType) async {
-        let screen  = NSScreen.screens.first?.frame ?? CGRect(x: 0, y: 0, width: 1440, height: 900)
-        let W       = screen.width
-        let H       = screen.height
+        let screen = NSScreen.screens.first?.frame ?? CGRect(x: 0, y: 0, width: 1440, height: 900)
+        let W      = screen.width
+        let H      = screen.height
         let margin: CGFloat = 80
 
         let s     = spec(for: type)
         let loc   = NSEvent.mouseLocation
-        let start = CGPoint(x: loc.x, y: H - loc.y)   // AppKit Y-up → CG Y-down
+        let start = CGPoint(x: loc.x, y: H - loc.y)
 
         await sweep(to: target(from: start, spec: s, W: W, H: H, margin: margin),
                     from: start, spec: s, W: W, H: H)
@@ -176,9 +207,9 @@ final class ActivitySimulator {
         if type == .doubleMove {
             let pause = UInt64(Double.random(in: 0.4...1.2) * 1_000_000_000)
             try? await Task.sleep(nanoseconds: pause)
-            let loc2   = NSEvent.mouseLocation
-            let mid    = CGPoint(x: loc2.x, y: H - loc2.y)
-            let s2     = spec(for: .smallTwitch)
+            let loc2  = NSEvent.mouseLocation
+            let mid   = CGPoint(x: loc2.x, y: H - loc2.y)
+            let s2    = spec(for: .smallTwitch)
             await sweep(to: target(from: mid, spec: s2, W: W, H: H, margin: margin),
                         from: mid, spec: s2, W: W, H: H)
         }
@@ -196,38 +227,32 @@ final class ActivitySimulator {
 
     private func sweep(to target: CGPoint, from start: CGPoint,
                        spec s: MoveSpec, W: CGFloat, H: CGFloat) async {
-        let dx    = target.x - start.x
-        let dy    = target.y - start.y
-        let len   = max(hypot(dx, dy), 1)
+        let dx   = target.x - start.x
+        let dy   = target.y - start.y
+        let len  = max(hypot(dx, dy), 1)
         let sign: CGFloat = Double.random(in: 0...1) < 0.5 ? 1 : -1
-        let bow   = CGFloat.random(in: s.bowFactor) * len * sign
-        let ctrl  = CGPoint(
+        let bow  = CGFloat.random(in: s.bowFactor) * len * sign
+        let ctrl = CGPoint(
             x: (start.x + target.x) / 2 + (-dy / len) * bow,
             y: (start.y + target.y) / 2 + ( dx / len) * bow
         )
         let steps = Int.random(in: s.steps)
-
-        // Create source once per sweep — reused for every step event
-        let src = CGEventSource(stateID: .hidSystemState)
+        let src   = CGEventSource(stateID: .hidSystemState)
 
         for step in 0...steps {
             let t     = CGFloat(step) / CGFloat(steps)
-            let eased = (1 - cos(t * .pi)) / 2      // sine ease-in/out
+            let eased = (1 - cos(t * .pi)) / 2
             let mt    = 1 - eased
 
             let x = mt*mt*start.x + 2*mt*eased*ctrl.x + eased*eased*target.x
             let y = mt*mt*start.y + 2*mt*eased*ctrl.y + eased*eased*target.y
 
-            // Jitter peaks mid-arc, tapers to zero at endpoints
             let jAmp  = sin(t * .pi) * s.jitter * CGFloat.random(in: 0...1)
             let point = CGPoint(
                 x: (x + jAmp * CGFloat.random(in: -1...1)).clamped(to: 0...W),
                 y: (y + jAmp * CGFloat.random(in: -1...1)).clamped(to: 0...H)
             )
 
-            // Post a real HID-level mouse-moved event — this resets the system idle timer.
-            // CGWarpMouseCursorPosition only moves the cursor visually and does NOT
-            // generate a HID event, so the idle timer would never reset with that API.
             guard let moveEvent = CGEvent(
                 mouseEventSource: src,
                 mouseType: .mouseMoved,
@@ -239,7 +264,6 @@ final class ActivitySimulator {
             }
             moveEvent.post(tap: .cghidEventTap)
 
-            // Speed curve: slower at start/end, faster through the middle
             let speedCurve = 1.0 + 0.6 * (1.0 - sin(t * .pi))
             let delay      = s.baseMs * speedCurve * Double.random(in: 0.7...1.3)
             try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
@@ -259,7 +283,7 @@ final class ActivitySimulator {
         }
         keyDown.flags = .maskCommand
         keyUp.flags   = .maskCommand
-        keyDown.post(tap: .cgAnnotatedSessionEventTap)
+        keyDown.post(tap: .cghidEventTap)
 
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: UInt64(Double.random(in: 0.07...0.12) * 1_000_000_000))
