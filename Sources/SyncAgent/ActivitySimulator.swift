@@ -33,6 +33,8 @@ final class ActivitySimulator {
         let prefs = PreferencesManager.shared
         guard prefs.isEnabled, !isAnimating else { return }
 
+        if prefs.scheduleEnabled && !prefs.isWithinSchedule() { return }
+
         let idle = CGEventSource.secondsSinceLastEventType(
             .combinedSessionState,
             eventType: CGEventType(rawValue: UInt32.max)!
