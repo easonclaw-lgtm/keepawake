@@ -74,7 +74,7 @@ All settings persist across relaunches.
 
 **Sleep prevention** uses `ProcessInfo.beginActivity(options: [.userInitiated, .idleDisplaySleepDisabled])` — the same OS-level mechanism used by `caffeinate`, Lungo, and Amphetamine. The assertion is acquired as soon as the idle threshold is crossed and released the moment the user returns. This is the reliable path; synthetic mouse events alone are not guaranteed to reset the system display sleep timer on all macOS versions.
 
-**Mouse movement** uses `CGEvent(mouseType: .mouseMoved)` posted at `.cghidEventTap` (HID hardware level) for the visual human-like simulation on top. Idle time is tracked via `NSEvent.addGlobalMonitorForEvents` rather than `CGEventSource.secondsSinceLastEventType` — the latter is reset by our own synthetic events and would cause the simulation to cancel itself after every burst.
+**Mouse movement** uses `CGEvent(mouseType: .mouseMoved)` posted at `.cghidEventTap` (HID hardware level) for the visual human-like simulation on top. Synthetic events are created with `CGEventSource(stateID: .privateState)` — this is critical: `.privateState` events move the cursor visually but do **not** update the `.hidSystemState` idle counter. Idle time is therefore safely measured via `CGEventSource.secondsSinceLastEventType(.hidSystemState, ...)`, which only advances from real hardware input and is never reset by our own bursts.
 
 Once the idle threshold is crossed, SyncAgent waits 3–8 seconds before the first action, then fires activity bursts at randomised intervals:
 
