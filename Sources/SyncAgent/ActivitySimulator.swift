@@ -8,41 +8,16 @@ private let logger = Logger(subsystem: "com.sync.agent", category: "ActivitySimu
 final class ActivitySimulator {
 
     private var timer: Timer?
-    private var isAnimating        = false
+    private var isAnimating:       Bool  = false
     private var lastBurstTime:     Date? = nil
     private var nextBurstDelay:    Double = 0
-    private var burstsSinceSwitch: Int   = 0
+    private var burstsSinceSwitch: Int    = 0
     private var activityToken:     NSObjectProtocol?
-
-    // Track the last time a REAL user input event was seen.
-    // Using CGEventSource.secondsSinceLastEventType is unreliable here because
-    // our own synthetic CGEvent posts reset that counter, causing the poll to
-    // think the user returned active and wiping the simulation state every cycle.
-    private var lastUserActivity: Date = Date()
-    private var animationEndTime: Date = .distantPast   // cooldown after our own events
-    private var eventMonitor: Any?
 
     // MARK: - Lifecycle
 
     func start() {
         guard timer == nil else { return }
-
-        // Monitor real user input across all apps.
-        // Guard: skip updates during animations AND for 0.5s after each animation
-        // ends — synthetic CGEvents may still be in flight at that moment.
-        eventMonitor = NSEvent.addGlobalMonitorForEvents(
-            matching: [.mouseMoved, .leftMouseDown, .rightMouseDown,
-                       .keyDown, .scrollWheel]
-        ) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                guard let self,
-                      !self.isAnimating,
-                      Date().timeIntervalSince(self.animationEndTime) > 0.5
-                else { return }
-                self.lastUserActivity = Date()
-            }
-        }
-
         timer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in self?.poll() }
         }
@@ -50,7 +25,6 @@ final class ActivitySimulator {
     }
 
     func stop() {
-        if let m = eventMonitor { NSEvent.removeMonitor(m); eventMonitor = nil }
         timer?.invalidate()
         timer = nil
         resetBurstState()
@@ -88,8 +62,13 @@ final class ActivitySimulator {
             return
         }
 
-        // Use our own activity timestamp — immune to our synthetic events
-        let idle = Date().timeIntervalSince(lastUserActivity)
+        // .hidSystemState tracks only real hardware input.
+        // Synthetic events posted with .privateState (see sweep()) do NOT
+        // update this counter, so our own animation never resets the idle time.
+        let idle = CGEventSource.secondsSinceLastEventType(
+            .hidSystemState,
+            eventType: CGEventType(rawValue: UInt32.max)!
+        )
 
         guard idle >= prefs.idleThreshold else {
             releaseActivity()
@@ -123,7 +102,7 @@ final class ActivitySimulator {
     }
 
     private func scheduleNextBurst() {
-        lastBurstTime = Date()
+        lastBurstTime  = Date()
         nextBurstDelay = Double.random(in: 0...1) < 0.10
             ? Double.random(in: 60...180)
             : Double.random(in: 15...50)
@@ -151,14 +130,14 @@ final class ActivitySimulator {
 
         isAnimating = true
         Task { @MainActor [weak self] in
+            guard let self else { return }
             if prefs.mouseMovementEnabled {
-                await self?.runMouseAnimation(type: moveType)
+                await self.runMouseAnimation(type: moveType)
             }
-            self?.isAnimating = false
-            self?.animationEndTime = Date()   // start cooldown so our events don't self-trigger
+            self.isAnimating = false
             if doSwitch {
                 try? await Task.sleep(nanoseconds: UInt64(Double.random(in: 0.35...0.90) * 1_000_000_000))
-                self?.simulateCmdTab()
+                self.simulateCmdTab()
             }
         }
     }
@@ -198,8 +177,7 @@ final class ActivitySimulator {
 
     private func runMouseAnimation(type: MoveType) async {
         let screen = NSScreen.screens.first?.frame ?? CGRect(x: 0, y: 0, width: 1440, height: 900)
-        let W = screen.width, H = screen.height
-        let margin: CGFloat = 80
+        let W = screen.width, H = screen.height, margin: CGFloat = 80
         let s     = spec(for: type)
         let loc   = NSEvent.mouseLocation
         let start = CGPoint(x: loc.x, y: H - loc.y)
@@ -239,7 +217,10 @@ final class ActivitySimulator {
             y: (start.y + target.y) / 2 + ( dx / len) * bow
         )
         let steps = Int.random(in: s.steps)
-        let src   = CGEventSource(stateID: .hidSystemState)
+
+        // .privateState: events move the cursor visually but do NOT update the
+        // HID system idle counter, so our own animations never reset idle detection.
+        let src = CGEventSource(stateID: .privateState)
 
         for step in 0...steps {
             let t     = CGFloat(step) / CGFloat(steps)
@@ -271,10 +252,7 @@ final class ActivitySimulator {
             let tabDown = CGEvent(keyboardEventSource: src, virtualKey: 0x30, keyDown: true),
             let tabUp   = CGEvent(keyboardEventSource: src, virtualKey: 0x30, keyDown: false),
             let cmdUp   = CGEvent(keyboardEventSource: src, virtualKey: 0x37, keyDown: false)
-        else {
-            logger.error("Failed to create CGEvents for Cmd+Tab")
-            return
-        }
+        else { logger.error("Failed to create CGEvents for Cmd+Tab"); return }
 
         cmdDown.flags = .maskCommand
         tabDown.flags = .maskCommand
@@ -285,10 +263,9 @@ final class ActivitySimulator {
         tabDown.post(tap: .cghidEventTap)
 
         Task { @MainActor in
-            // Hold briefly like a real keystroke, then release
             try? await Task.sleep(nanoseconds: UInt64(Double.random(in: 0.08...0.15) * 1_000_000_000))
             tabUp.post(tap: .cghidEventTap)
-            try? await Task.sleep(nanoseconds: 50_000_000)   // 50ms
+            try? await Task.sleep(nanoseconds: 50_000_000)
             cmdUp.post(tap: .cghidEventTap)
             logger.info("Cmd+Tab posted")
         }
