@@ -1,4 +1,5 @@
 import AppKit
+import ApplicationServices
 import CoreGraphics
 import os
 
@@ -62,9 +63,8 @@ final class ActivitySimulator {
             return
         }
 
-        // .hidSystemState tracks only real hardware input.
-        // Synthetic events posted with .privateState (see sweep()) do NOT
-        // update this counter, so our own animation never resets the idle time.
+        // CGWarpMouseCursorPosition does not generate HID events, so this
+        // counter is only advanced by real user input — immune to our own moves.
         let idle = CGEventSource.secondsSinceLastEventType(
             .hidSystemState,
             eventType: CGEventType(rawValue: UInt32.max)!
@@ -76,6 +76,7 @@ final class ActivitySimulator {
             return
         }
 
+        // Sleep prevention works without Accessibility permission.
         acquireActivity()
 
         if lastBurstTime == nil {
@@ -120,7 +121,10 @@ final class ActivitySimulator {
         else             { moveType = .doubleMove   }
 
         burstsSinceSwitch += 1
+        // Cmd+Tab requires Accessibility; only attempt it when granted.
+        let axTrusted = AXIsProcessTrusted()
         let doSwitch = prefs.windowSwitchEnabled
+            && axTrusted
             && burstsSinceSwitch >= 2
             && Double.random(in: 0...1) < 0.20
         if doSwitch { burstsSinceSwitch = 0 }
@@ -174,6 +178,9 @@ final class ActivitySimulator {
     }
 
     // MARK: - Animation
+    // CGWarpMouseCursorPosition requires no Accessibility permission and does not
+    // generate HID events, so the .hidSystemState idle counter is never reset by
+    // our own cursor movement.
 
     private func runMouseAnimation(type: MoveType) async {
         let screen = NSScreen.screens.first?.frame ?? CGRect(x: 0, y: 0, width: 1440, height: 900)
@@ -218,10 +225,6 @@ final class ActivitySimulator {
         )
         let steps = Int.random(in: s.steps)
 
-        // .privateState: events move the cursor visually but do NOT update the
-        // HID system idle counter, so our own animations never reset idle detection.
-        let src = CGEventSource(stateID: .privateState)
-
         for step in 0...steps {
             let t     = CGFloat(step) / CGFloat(steps)
             let eased = (1 - cos(t * .pi)) / 2
@@ -233,9 +236,7 @@ final class ActivitySimulator {
                 x: (x + jAmp * CGFloat.random(in: -1...1)).clamped(to: 0...W),
                 y: (y + jAmp * CGFloat.random(in: -1...1)).clamped(to: 0...H)
             )
-            guard let evt = CGEvent(mouseEventSource: src, mouseType: .mouseMoved,
-                                    mouseCursorPosition: point, mouseButton: .left) else { return }
-            evt.post(tap: .cghidEventTap)
+            CGWarpMouseCursorPosition(point)
 
             let speedCurve = 1.0 + 0.6 * (1.0 - sin(t * .pi))
             let delay      = s.baseMs * speedCurve * Double.random(in: 0.7...1.3)
@@ -243,7 +244,7 @@ final class ActivitySimulator {
         }
     }
 
-    // MARK: - Cmd+Tab
+    // MARK: - Cmd+Tab (requires Accessibility permission)
 
     private func simulateCmdTab() {
         let src = CGEventSource(stateID: .hidSystemState)
